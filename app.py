@@ -15,12 +15,19 @@ from pandas import DataFrame
 tmp_dir = os.path.join(os.getcwd(), "tmp")
 os.makedirs(tmp_dir, exist_ok=True)
 
+# ChatTTS 模型目录。
+# 第一次试听时从 ModelScope 下载 pzc163/chatTTS 到这里；
+# 后续启动直接复用本地文件，不再重复下载。
+MODEL_DIR = os.path.join(os.getcwd(), "models")
+CHATTTS_MODEL_DIR = os.path.join(MODEL_DIR, "pzc163", "chatTTS")
+os.makedirs(CHATTTS_MODEL_DIR, exist_ok=True)
+
 # 嵌入式设备音色试听固定文本。
 # 每个 seed_id 都使用完全相同的文本，便于横向比较音色。
 PREVIEW_TEXT = "你好，我是小智。设备连接成功。正在为您拍照。任务执行完成。"
 
 # ChatTTS 模型采用懒加载：
-# 启动 Gradio 时不加载；第一次点击 seed_id 时才加载并缓存。
+# 启动 Gradio 时不加载；第一次点击 seed_id 时才下载/加载并缓存。
 _chat_model = None
 _chat_model_load_lock = threading.Lock()
 _tts_infer_lock = threading.Lock()
@@ -117,8 +124,9 @@ def get_chat_model():
     """
     懒加载并缓存 ChatTTS 模型。
 
-    第一次调用时会从 Hugging Face 下载 ChatTTS 模型到本机缓存；
-    后续选择其他 seed_id 时复用同一个模型，不会重复加载。
+    第一次调用时通过 ModelScope SDK 下载 pzc163/chatTTS 到项目的 models 目录；
+    下载完成后，ChatTTS 使用 source="custom" 从本地目录加载。
+    后续选择其他 seed_id 时复用同一个已加载模型。
     """
     global _chat_model
 
@@ -136,14 +144,42 @@ def get_chat_model():
                 "未安装 ChatTTS，请先执行：pip install -r requirements.txt"
             ) from exc
 
-        print("Loading ChatTTS model (first preview only)...")
+        try:
+            from modelscope import snapshot_download
+        except ImportError as exc:
+            raise RuntimeError(
+                "未安装 ModelScope，请先执行：pip install -r requirements.txt"
+            ) from exc
+
+        print("Preparing ChatTTS model from ModelScope (first preview only)...")
+        print(f"Model directory: {CHATTTS_MODEL_DIR}")
+
+        try:
+            model_dir = snapshot_download(
+                model_id="pzc163/chatTTS",
+                local_dir=CHATTTS_MODEL_DIR,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"从 ModelScope 下载 ChatTTS 模型失败：{exc}"
+            ) from exc
+
+        print(f"ModelScope model ready: {model_dir}")
+        print("Loading ChatTTS model from local ModelScope files...")
+
         chat = ChatTTS.Chat()
-        loaded = chat.load(source="huggingface", compile=False)
+        loaded = chat.load(
+            source="custom",
+            custom_path=model_dir,
+            compile=False,
+        )
         if not loaded:
-            raise RuntimeError("ChatTTS 模型加载失败，请检查网络或 Hugging Face 访问情况。")
+            raise RuntimeError(
+                "ChatTTS 模型加载失败。请检查 ModelScope 下载目录中的模型文件是否完整。"
+            )
 
         _chat_model = chat
-        print("ChatTTS model loaded.")
+        print("ChatTTS model loaded from ModelScope cache.")
         return _chat_model
 
 
@@ -261,6 +297,8 @@ with gr.Blocks() as demo:
 
     点选 **seed_id** 后，将直接使用 ChatTTS 和该音色实时生成固定设备播报语音，无需外部 WAV 试听资源。
 
+    ChatTTS 模型首次试听时从 **ModelScope / pzc163/chatTTS** 下载并缓存到本机，后续直接复用本地模型。
+
     评估基于通义实验室：[eres2netv2_sv_zh-cn](https://modelscope.cn/models/iic/speech_eres2netv2_sv_zh-cn_16k-common/summary)
     """)
 
@@ -283,7 +321,7 @@ with gr.Blocks() as demo:
 
 - 点选表格第一列的 **seed_id**。
 - 程序会使用 ChatTTS 实时合成固定测试句。
-- 第一次试听会下载并加载 ChatTTS 模型；以后会复用本机缓存和已加载模型。
+- 第一次试听会从 ModelScope 下载并加载 ChatTTS 模型；以后会复用本机缓存和已加载模型。
 - 点击 **Download .pt File** 可下载对应音色文件。
                 """)
             with gr.Column(scale=3, min_width=800):
