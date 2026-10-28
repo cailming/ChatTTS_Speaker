@@ -15,12 +15,12 @@ from pandas import DataFrame
 tmp_dir = os.path.join(os.getcwd(), "tmp")
 os.makedirs(tmp_dir, exist_ok=True)
 
-# ChatTTS 模型目录。
-# 第一次试听时从 ModelScope 下载 pzc163/chatTTS 到这里；
-# 后续启动直接复用本地文件，不再重复下载。
+# ChatTTS Hugging Face 模型缓存目录。
+# 可以在启动程序前通过 HF_ENDPOINT 切换 Hugging Face 镜像源，例如：
+# HF_ENDPOINT=https://hf-mirror.com python app.py
 MODEL_DIR = os.path.join(os.getcwd(), "models")
-CHATTTS_MODEL_DIR = os.path.join(MODEL_DIR, "pzc163", "chatTTS")
-os.makedirs(CHATTTS_MODEL_DIR, exist_ok=True)
+HF_CACHE_DIR = os.path.join(MODEL_DIR, "huggingface")
+os.makedirs(HF_CACHE_DIR, exist_ok=True)
 
 # 嵌入式设备音色试听固定文本。
 # 每个 seed_id 都使用完全相同的文本，便于横向比较音色。
@@ -124,8 +124,8 @@ def get_chat_model():
     """
     懒加载并缓存 ChatTTS 模型。
 
-    第一次调用时通过 ModelScope SDK 下载 pzc163/chatTTS 到项目的 models 目录；
-    下载完成后，ChatTTS 使用 source="custom" 从本地目录加载。
+    第一次调用时通过 Hugging Face 下载 2Noise/ChatTTS 到项目的 models/huggingface 目录；
+    可通过启动前设置 HF_ENDPOINT 切换镜像源，例如 https://hf-mirror.com。
     后续选择其他 seed_id 时复用同一个已加载模型。
     """
     global _chat_model
@@ -144,42 +144,24 @@ def get_chat_model():
                 "未安装 ChatTTS，请先执行：pip install -r requirements.txt"
             ) from exc
 
-        try:
-            from modelscope import snapshot_download
-        except ImportError as exc:
-            raise RuntimeError(
-                "未安装 ModelScope，请先执行：pip install -r requirements.txt"
-            ) from exc
-
-        print("Preparing ChatTTS model from ModelScope (first preview only)...")
-        print(f"Model directory: {CHATTTS_MODEL_DIR}")
-
-        try:
-            model_dir = snapshot_download(
-                model_id="pzc163/chatTTS",
-                local_dir=CHATTTS_MODEL_DIR,
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"从 ModelScope 下载 ChatTTS 模型失败：{exc}"
-            ) from exc
-
-        print(f"ModelScope model ready: {model_dir}")
-        print("Loading ChatTTS model from local ModelScope files...")
+        hf_endpoint = os.getenv("HF_ENDPOINT", "https://huggingface.co")
+        print("Preparing ChatTTS model from Hugging Face (first preview only)...")
+        print(f"HF endpoint: {hf_endpoint}")
+        print(f"HF cache directory: {HF_CACHE_DIR}")
 
         chat = ChatTTS.Chat()
         loaded = chat.load(
-            source="custom",
-            custom_path=model_dir,
+            source="huggingface",
+            custom_path=HF_CACHE_DIR,
             compile=False,
         )
         if not loaded:
             raise RuntimeError(
-                "ChatTTS 模型加载失败。请检查 ModelScope 下载目录中的模型文件是否完整。"
+                "ChatTTS 模型下载或加载失败。请检查 HF_ENDPOINT、网络以及 Hugging Face 缓存目录。"
             )
 
         _chat_model = chat
-        print("ChatTTS model loaded from ModelScope cache.")
+        print("ChatTTS model loaded from Hugging Face cache.")
         return _chat_model
 
 
@@ -297,7 +279,7 @@ with gr.Blocks() as demo:
 
     点选 **seed_id** 后，将直接使用 ChatTTS 和该音色实时生成固定设备播报语音，无需外部 WAV 试听资源。
 
-    ChatTTS 模型首次试听时从 **ModelScope / pzc163/chatTTS** 下载并缓存到本机，后续直接复用本地模型。
+    ChatTTS 模型首次试听时从 **Hugging Face / 2Noise/ChatTTS** 下载并缓存到项目目录；可通过 `HF_ENDPOINT` 切换下载镜像。
 
     评估基于通义实验室：[eres2netv2_sv_zh-cn](https://modelscope.cn/models/iic/speech_eres2netv2_sv_zh-cn_16k-common/summary)
     """)
@@ -321,7 +303,8 @@ with gr.Blocks() as demo:
 
 - 点选表格第一列的 **seed_id**。
 - 程序会使用 ChatTTS 实时合成固定测试句。
-- 第一次试听会从 ModelScope 下载并加载 ChatTTS 模型；以后会复用本机缓存和已加载模型。
+- 第一次试听会从 Hugging Face 下载并加载 ChatTTS 模型；以后会复用本机缓存和已加载模型。
+- 如需使用镜像，可运行：`HF_ENDPOINT=https://hf-mirror.com python app.py`。
 - 点击 **Download .pt File** 可下载对应音色文件。
                 """)
             with gr.Column(scale=3, min_width=800):
