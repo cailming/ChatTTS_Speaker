@@ -4,4 +4,4 @@ pybase16384
 torch==2.1.0
 torchaudio==2.1.0
 numpy<2.0.0
-ChatTTS
+ChatTTS==0.2.5
