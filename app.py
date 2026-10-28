@@ -177,6 +177,7 @@ def seed_change(evt: gr.SelectData, value=None):
             None,
             gr.DownloadButton(value=None, label="Download .pt File", visible=False),
             gr.Audio(None, visible=False),
+            "",
         ]
 
     assert isinstance(value, DataFrame), "Expected value to be a DataFrame"
